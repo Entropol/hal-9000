@@ -40,6 +40,16 @@ MAX_HISTORY_TURNS = int(os.environ.get("MAX_HISTORY_TURNS", "10"))
 MAX_SESSIONS = int(os.environ.get("MAX_SESSIONS", "500"))
 LLM_MAX_TOKENS = int(os.environ.get("LLM_MAX_TOKENS", "300"))
 
+# Turkish: the source voice sets rhythm and intonation, kNN-VC then gives it HAL's timbre.
+TR_SOURCE = os.environ.get("TR_SOURCE", "openrouter")  # "openrouter" or "piper"
+TR_TTS_MODEL = os.environ.get("TR_TTS_MODEL", "google/gemini-3.1-flash-tts-preview")
+TR_TTS_VOICE = os.environ.get("TR_TTS_VOICE", "Charon")  # a deep, even Gemini voice
+TR_TTS_INSTRUCTIONS = os.environ.get(
+    "TR_TTS_INSTRUCTIONS",
+    "Speak Turkish with perfect native pronunciation. Voice of a calm, soft-spoken "
+    "computer: slow, precise, perfectly even, almost no emotion, unfailingly polite, "
+    "quietly confident, low-pitched and smooth.")
+
 SYSTEM_PROMPT = os.environ.get(
     "SYSTEM_PROMPT",
     """You are the HAL 9000 computer from the film 2001: A Space Odyssey: the Heuristically
@@ -199,6 +209,33 @@ def _wav(pcm: bytes, sample_rate: int) -> bytes:
     return buf.getvalue()
 
 
+def _turkish_source(text: str) -> tuple[bytes, int]:
+    """Neutral Turkish speech (16-bit mono PCM, sample rate) that kNN-VC turns into HAL.
+
+    The source decides rhythm and intonation, so it matters most for how natural Turkish
+    sounds. Default: an OpenRouter TTS model told to speak like HAL. Fallback: Piper."""
+    if TR_SOURCE == "openrouter" and OPENROUTER_API_KEY:
+        try:
+            r = httpx.post(
+                f"{OPENROUTER_BASE}/audio/speech",
+                headers={"Authorization": f"Bearer {OPENROUTER_API_KEY}"},
+                json={"model": TR_TTS_MODEL, "input": text, "voice": TR_TTS_VOICE,
+                      "instructions": TR_TTS_INSTRUCTIONS, "response_format": "pcm"},
+                timeout=60)
+            r.raise_for_status()
+            # Gemini TTS answers with raw 16-bit mono PCM; the rate is in the content type,
+            # e.g. "audio/pcm;rate=24000;channels=1"
+            m = re.search(r"rate=(\d+)", r.headers.get("content-type", ""))
+            if r.content and not r.content.lstrip().startswith(b"{"):
+                return r.content, int(m.group(1)) if m else 24000
+            raise RuntimeError(f"unexpected TTS response: {r.content[:200]!r}")
+        except Exception:
+            log.exception("OpenRouter Turkish TTS failed, falling back to Piper")
+    if tr_voice is None:
+        raise HTTPException(503, "No Turkish voice available")
+    return b"".join(tr_voice.synthesize_stream_raw(text)), tr_voice.config.sample_rate
+
+
 def _resample(wav: bytes, rate: int) -> bytes:
     """Mono 16-bit WAV at the requested sample rate (ffmpeg)."""
     proc = subprocess.run(
@@ -224,9 +261,8 @@ def _synthesize_native(text: str, lang: str) -> bytes:
     Turkish: Piper Turkish voice, converted to HAL's timbre by kNN-VC (falls back to the
     plain Turkish voice if the converter is unavailable)."""
     text = _clean_for_speech(text)
-    if lang == "tr" and tr_voice is not None:
-        pcm = b"".join(tr_voice.synthesize_stream_raw(text))
-        rate = tr_voice.config.sample_rate
+    if lang == "tr" and (tr_voice is not None or TR_SOURCE == "openrouter"):
+        pcm, rate = _turkish_source(text)
         if converter is not None:
             try:
                 pcm = converter.convert(np.frombuffer(pcm, dtype=np.int16), rate).tobytes()

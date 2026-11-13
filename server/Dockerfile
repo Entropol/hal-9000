@@ -25,10 +25,13 @@ RUN pip install torch==2.5.1 torchaudio==2.5.1 --index-url https://download.pyto
 COPY requirements.txt .
 RUN pip install -r requirements.txt
 
-COPY app ./app
+# Only vc.py is copied before the slow model step, so app code edits don't redo the downloads
+COPY app/vc.py ./app/vc.py
 
 # Downloads the Turkish voice, kNN-VC models and HAL reference clips, precomputes HAL's voice
 RUN python -m app.vc
+
+COPY app ./app
 
 RUN useradd -m hal && chown -R hal /srv /models /opt/torch
 USER hal

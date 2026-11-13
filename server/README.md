@@ -100,11 +100,16 @@ docker run --rm -p 8000:8000 --env-file .env hal
 
 ## Notes
 
-- Languages: English uses the HAL Piper voice directly. Turkish uses Piper's Turkish voice
-  (`tr_TR-dfki-medium`), then kNN-VC changes its timbre to HAL's, using the 96 clips of the
-  HAL dataset as the reference. Turkish replies take about 1-2 s longer on CPU. If the
-  converter fails to load, Turkish falls back to the plain Turkish voice. Set
-  `TR_VOICE_CONVERSION=0` to turn conversion off.
+- Languages: English uses the HAL Piper voice directly. For Turkish, a Gemini TTS voice
+  (via OpenRouter, told to speak like a calm computer) reads the text, because it has natural
+  Turkish rhythm and intonation. Then kNN-VC changes its timbre to HAL's, using the 96 clips
+  of the HAL dataset as the reference. A Turkish reply takes roughly 3-10 s and costs a
+  fraction of a cent.
+  - `TR_TTS_MODEL` (default `google/gemini-3.1-flash-tts-preview`), `TR_TTS_VOICE`
+    (default `Charon`), `TR_TTS_INSTRUCTIONS` tune the source voice.
+  - `TR_SOURCE=piper` uses Piper's Turkish voice instead: free and offline, but flat and
+    robotic. It is also the automatic fallback if the OpenRouter call fails.
+  - `TR_VOICE_CONVERSION=0` turns the HAL conversion off.
 - The image is about 3 GB (PyTorch CPU, WavLM and the voice models are baked in).
 - Change HAL's personality with the `SYSTEM_PROMPT` env var.
 - `LLM_MODEL` defaults to `google/gemini-2.5-flash`. Set it to any OpenRouter model slug,
