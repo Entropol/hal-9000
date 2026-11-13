@@ -119,6 +119,8 @@ docker run --rm -p 8000:8000 --env-file .env hal
   `TR_PITCH_SHIFT` (semitones, default `0`, range -12 to 12) raises or lowers the Turkish
   voice: try `-2` or `-3` if it sounds too high, `2` if too low. It is read at startup, so
   restart the service after changing it (no rebuild needed). The startup log prints the value.
+  `TR_BASS_DB` (decibels, default `6`, range 0 to 15) boosts the bass of the Turkish voice
+  below `TR_BASS_FREQ` (default `200` Hz). Set `0` to turn it off; above about 8 it gets boomy.
   A Turkish reply takes roughly 3-20 s (mostly the Gemini call) and costs a fraction of a cent.
   - `TR_TTS_MODEL` (default `google/gemini-3.1-flash-tts-preview`), `TR_TTS_VOICE`
     (default `Charon`), `TR_TTS_INSTRUCTIONS` tune the source voice.

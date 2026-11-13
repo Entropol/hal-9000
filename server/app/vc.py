@@ -29,6 +29,10 @@ SR = 16000
 # Semitones to raise (+) or lower (-) the Turkish source voice before it becomes HAL.
 # 0 = off. Try -2, -3 for a deeper voice or +2 for a higher one; 12 semitones = one octave.
 PITCH_SHIFT = max(-12.0, min(12.0, float(os.environ.get("TR_PITCH_SHIFT", "0") or 0)))
+# Bass boost on the Turkish output: a low shelf of BASS_DB decibels below BASS_FREQ Hz.
+# 0 = off. 4-8 is a clear, natural boost; much more starts to sound boomy.
+BASS_DB = max(0.0, min(15.0, float(os.environ.get("TR_BASS_DB", "6") or 0)))
+BASS_FREQ = float(os.environ.get("TR_BASS_FREQ", "200") or 200)
 
 
 def _load_knn():
@@ -54,8 +58,9 @@ class Converter:
         self.knn = _load_knn()
         self.matching = torch.load(MATCHING_PATH, weights_only=True)
         self.lock = threading.Lock()  # one conversion at a time
-        log.info("kNN-VC ready, HAL matching set %s, topk=%s, pitch shift %+.1f st",
-                 tuple(self.matching.shape), TOPK, PITCH_SHIFT)
+        log.info("kNN-VC ready, HAL matching set %s, topk=%s, pitch shift %+.1f st, "
+                 "bass +%.1f dB below %.0f Hz",
+                 tuple(self.matching.shape), TOPK, PITCH_SHIFT, BASS_DB, BASS_FREQ)
 
     def convert(self, pcm: np.ndarray, sample_rate: int) -> np.ndarray:
         """int16 mono PCM in -> int16 mono PCM at 16 kHz in HAL's timbre."""
@@ -69,6 +74,11 @@ class Converter:
         with self.lock, torch.inference_mode():
             query = self.knn.get_features(x)
             out = self.knn.match(query, self.matching, topk=TOPK)
+        if BASS_DB:
+            try:  # low-shelf boost: a deeper, fuller voice
+                out = torchaudio.functional.bass_biquad(out.cpu(), SR, BASS_DB, BASS_FREQ)
+            except Exception:
+                log.exception("Bass boost failed, using the unboosted voice")
         out = out.cpu().numpy()
         out = out / max(float(np.abs(out).max()), 1e-6) * 0.9
         return (out * 32767).astype(np.int16)
