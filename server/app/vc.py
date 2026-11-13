@@ -1,10 +1,12 @@
 """Turkish in HAL's voice: kNN-VC voice conversion.
 
-Piper's Turkish voice reads the text with correct pronunciation, then kNN-VC
-swaps its timbre for HAL's, using the HAL dataset clips as the reference.
+A neutral Turkish voice reads the text (correct pronunciation and rhythm), then kNN-VC swaps
+its timbre for HAL's. The reference is HAL's own Piper voice reading `ref_sentences.txt`:
+clean, consistent speech in exactly the voice the English replies use. (In tests it matched the
+English HAL voice better than the 96 noisy movie clips did.)
 
-`python -m app.vc` runs at image build time: it downloads the Turkish voice and the
-HAL reference clips, downloads the kNN-VC models, and precomputes HAL's matching set.
+`python -m app.vc` runs at image build time: it downloads the Piper Turkish voice (fallback
+source) and the kNN-VC models, and precomputes HAL's matching set.
 """
 import logging
 import os
@@ -12,16 +14,17 @@ import shutil
 import threading
 
 import numpy as np
-import soundfile as sf
 import torch
 import torchaudio
 
 log = logging.getLogger("hal.vc")
 
 MATCHING_PATH = os.environ.get("HAL_MATCHING_SET", "/models/hal_matching_set.pt")
+HAL_MODEL = os.environ.get("PIPER_MODEL", "/models/hal.onnx")
 TR_DIR = os.environ.get("TR_VOICE_DIR", "/models/tr")
 TR_VOICE_FILE = "tr_TR-dfki-medium.onnx"
-TOPK = int(os.environ.get("VC_TOPK", "4"))
+SENTENCES = os.path.join(os.path.dirname(os.path.abspath(__file__)), "ref_sentences.txt")
+TOPK = int(os.environ.get("VC_TOPK", "8"))  # higher = smoother, lower = closer to the reference
 SR = 16000
 
 
@@ -43,18 +46,12 @@ def _retry(fn, attempts: int = 5):
             time.sleep(5 * (i + 1))
 
 
-def _load_16k(path: str) -> torch.Tensor:
-    x, sr = sf.read(path, dtype="float32", always_2d=True)
-    x = torch.from_numpy(x.mean(axis=1))[None]
-    return torchaudio.functional.resample(x, sr, SR)
-
-
 class Converter:
     def __init__(self) -> None:
         self.knn = _load_knn()
         self.matching = torch.load(MATCHING_PATH, weights_only=True)
         self.lock = threading.Lock()  # one conversion at a time
-        log.info("kNN-VC ready, HAL matching set %s", tuple(self.matching.shape))
+        log.info("kNN-VC ready, HAL matching set %s, topk=%s", tuple(self.matching.shape), TOPK)
 
     def convert(self, pcm: np.ndarray, sample_rate: int) -> np.ndarray:
         """int16 mono PCM in -> int16 mono PCM at 16 kHz in HAL's timbre."""
@@ -69,8 +66,9 @@ class Converter:
 
 
 def build() -> None:
-    """Build-time setup. Needs network access."""
-    from huggingface_hub import hf_hub_download, snapshot_download
+    """Build-time setup. Needs network access and the HAL Piper model already in place."""
+    from huggingface_hub import hf_hub_download
+    from piper import PiperVoice
 
     os.makedirs(TR_DIR, exist_ok=True)
     for name in (TR_VOICE_FILE, TR_VOICE_FILE + ".json"):
@@ -78,24 +76,24 @@ def build() -> None:
                                               f"tr/tr_TR/dfki/medium/{name}"))
         shutil.copy(path, os.path.join(TR_DIR, name))
 
-    ref = _retry(lambda: snapshot_download("campwill/HAL-9000-Speech", repo_type="dataset",
-                                           allow_patterns=["audio/*"], local_dir="/tmp/hal_ref"))
-    ref_dir = os.path.join(ref, "audio")
-
     knn = _retry(_load_knn)
-    feats, fallback = [], 0
-    for name in sorted(os.listdir(ref_dir)):
-        wav = _load_16k(os.path.join(ref_dir, name))
-        try:  # trim silence when possible; some noisy clips break the trimmer
+    hal = PiperVoice.load(HAL_MODEL, config_path=HAL_MODEL + ".json")
+    sentences = [l.strip() for l in open(SENTENCES, encoding="utf-8") if l.strip()]
+
+    feats, seconds = [], 0.0
+    for text in sentences:
+        pcm = np.frombuffer(b"".join(hal.synthesize_stream_raw(text)), dtype=np.int16)
+        wav = torchaudio.functional.resample(
+            torch.from_numpy(pcm.astype(np.float32) / 32768.0)[None], hal.config.sample_rate, SR)
+        seconds += wav.shape[1] / SR
+        try:  # trim silence when possible; the trimmer can fail on very short clips
             feats.append(knn.get_features(wav, weights=knn.weighting, vad_trigger_level=7))
         except Exception:
-            fallback += 1
             feats.append(knn.get_features(wav, weights=knn.weighting, vad_trigger_level=0))
     matching = torch.cat(feats, dim=0).cpu()
     torch.save(matching, MATCHING_PATH)
-    print(f"HAL matching set {tuple(matching.shape)} from {len(feats)} clips "
-          f"({fallback} without silence trimming)")
-    shutil.rmtree("/tmp/hal_ref", ignore_errors=True)
+    print(f"HAL matching set {tuple(matching.shape)} from {len(feats)} sentences "
+          f"({seconds / 60:.1f} min of HAL speech)")
 
 
 if __name__ == "__main__":

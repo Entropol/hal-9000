@@ -25,15 +25,17 @@ RUN pip install torch==2.5.1 torchaudio==2.5.1 --index-url https://download.pyto
 COPY requirements.txt .
 RUN pip install -r requirements.txt
 
-# Only vc.py is copied before the slow model step, so app code edits don't redo the downloads
-COPY app/vc.py ./app/vc.py
+# Only these two files are copied before the slow model step, so app code edits don't redo it
+COPY app/vc.py app/ref_sentences.txt ./app/
 
-# Downloads the Turkish voice, kNN-VC models and HAL reference clips, precomputes HAL's voice
+# Downloads the Turkish voice and kNN-VC models, then has HAL read the reference sentences
 RUN python -m app.vc
 
 COPY app ./app
 
-RUN useradd -m hal && chown -R hal /srv /models /opt/torch
+# Models are world-readable, so only /srv needs chown. chown -R on /models and /opt/torch
+# would copy their multi-GB files into a new layer and double the image size.
+RUN useradd -m hal && chown -R hal /srv
 USER hal
 
 EXPOSE 8000

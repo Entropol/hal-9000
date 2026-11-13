@@ -3,5 +3,4 @@ uvicorn[standard]==0.34.0
 python-multipart==0.0.20
 httpx==0.28.1
 piper-tts==1.2.0
-soundfile==0.12.1
 huggingface_hub

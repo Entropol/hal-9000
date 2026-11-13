@@ -102,9 +102,13 @@ docker run --rm -p 8000:8000 --env-file .env hal
 
 - Languages: English uses the HAL Piper voice directly. For Turkish, a Gemini TTS voice
   (via OpenRouter, told to speak like a calm computer) reads the text, because it has natural
-  Turkish rhythm and intonation. Then kNN-VC changes its timbre to HAL's, using the 96 clips
-  of the HAL dataset as the reference. A Turkish reply takes roughly 3-10 s and costs a
-  fraction of a cent.
+  Turkish rhythm and intonation. Then kNN-VC changes its timbre to HAL's. The reference is
+  HAL's own Piper voice reading `app/ref_sentences.txt` (about 8 minutes, generated at build
+  time), so Turkish is matched to exactly the voice the English replies use. In a
+  speaker-similarity test this beat using the 96 noisy movie clips as the reference
+  (0.66 vs 0.59 against the English HAL voice; 1.0 would be identical). Add more sentences to
+  that file to widen the reference. `VC_TOPK` (default 8) trades smoothness for fidelity.
+  A Turkish reply takes roughly 3-20 s (mostly the Gemini call) and costs a fraction of a cent.
   - `TR_TTS_MODEL` (default `google/gemini-3.1-flash-tts-preview`), `TR_TTS_VOICE`
     (default `Charon`), `TR_TTS_INSTRUCTIONS` tune the source voice.
   - `TR_SOURCE=piper` uses Piper's Turkish voice instead: free and offline, but flat and
