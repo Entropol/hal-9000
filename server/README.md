@@ -12,14 +12,22 @@ Speech-to-text and the LLM run on OpenRouter, so you only need one API key.
 
 ## Deploy on Coolify
 
-1. Push this folder to a Git repo.
-2. Coolify → **New Resource** → Application → pick the repo → **Build Pack: Dockerfile**.
+1. Coolify → **New Resource** → Application → pick the `Entropol/hal-9000` repo, branch `main`.
+2. **Build Pack: Dockerfile**, and set **Base Directory** to `/server` (the app lives in this
+   subfolder, not at the repo root). Dockerfile location: `/Dockerfile`.
 3. Set **Ports Exposes** to `8000`.
-4. Add environment variables: `OPENROUTER_API_KEY` and `API_KEY` (see `.env.example`).
-5. Assign a domain and deploy. Coolify uses the `/health` endpoint as the healthcheck.
+4. Add environment variables (see `.env.example`): `OPENROUTER_API_KEY`, `API_KEY`, and
+   optionally `TELEGRAM_BOT_TOKEN` and `TELEGRAM_ALLOWED_USERS`. Mark the keys as secrets.
+5. Assign a domain and deploy. The Dockerfile has a healthcheck on `/health`.
 
-Conversation memory (`session_id`) is kept in process memory, so it resets on redeploy.
-Run a single instance.
+Requirements and behaviour on the server:
+- **RAM:** give it at least 3-4 GB. Loading the voice-conversion model takes about 2 GB.
+  The first build takes several minutes (it downloads the models) and about 1.5 GB of disk.
+- **Startup:** the container needs about a minute to load its models. A deploy is only
+  healthy once `/health` answers, so give the healthcheck a generous start period.
+- **One instance only.** Conversation memory (`session_id`) lives in process memory and resets
+  on redeploy, and two instances would both poll the same Telegram bot and fight over messages.
+  Stop any local copy (`docker rm -f hal`) before the Coolify one starts polling.
 
 ## Test with Telegram
 
