@@ -195,6 +195,8 @@ def _clean_for_speech(text: str) -> str:
     text = re.sub(r"```.*?```", " ", text, flags=re.S)
     text = re.sub(r"https?://\S+", " ", text)
     text = re.sub(r"[*_`#>~|]", "", text)
+    # The voices spell out capitals as letters ("H-A-L"); write it as a word instead.
+    text = re.sub(r"\bH\.A\.L\b|\bHAL\b", "Hal", text)
     text = re.sub(r"\s+", " ", text)
     return text.strip()
 
