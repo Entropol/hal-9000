@@ -30,6 +30,19 @@ def _load_knn():
                           trust_repo=True, pretrained=True, device="cpu")
 
 
+def _retry(fn, attempts: int = 5):
+    """Build-time downloads occasionally drop mid-transfer; try again."""
+    import time
+    for i in range(attempts):
+        try:
+            return fn()
+        except Exception as exc:
+            if i == attempts - 1:
+                raise
+            print(f"download failed ({exc!r}), retrying {i + 2}/{attempts}", flush=True)
+            time.sleep(5 * (i + 1))
+
+
 def _load_16k(path: str) -> torch.Tensor:
     x, sr = sf.read(path, dtype="float32", always_2d=True)
     x = torch.from_numpy(x.mean(axis=1))[None]
@@ -61,14 +74,15 @@ def build() -> None:
 
     os.makedirs(TR_DIR, exist_ok=True)
     for name in (TR_VOICE_FILE, TR_VOICE_FILE + ".json"):
-        shutil.copy(hf_hub_download("rhasspy/piper-voices", f"tr/tr_TR/dfki/medium/{name}"),
-                    os.path.join(TR_DIR, name))
+        path = _retry(lambda: hf_hub_download("rhasspy/piper-voices",
+                                              f"tr/tr_TR/dfki/medium/{name}"))
+        shutil.copy(path, os.path.join(TR_DIR, name))
 
-    ref = snapshot_download("campwill/HAL-9000-Speech", repo_type="dataset",
-                            allow_patterns=["audio/*"], local_dir="/tmp/hal_ref")
+    ref = _retry(lambda: snapshot_download("campwill/HAL-9000-Speech", repo_type="dataset",
+                                           allow_patterns=["audio/*"], local_dir="/tmp/hal_ref"))
     ref_dir = os.path.join(ref, "audio")
 
-    knn = _load_knn()
+    knn = _retry(_load_knn)
     feats, fallback = [], 0
     for name in sorted(os.listdir(ref_dir)):
         wav = _load_16k(os.path.join(ref_dir, name))
