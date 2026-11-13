@@ -1,0 +1,13 @@
+# Gizli bilgiler
+firmware/**/secrets.h
+*.env
+
+# Arduino / PlatformIO derleme çıktıları
+build/
+.pio/
+*.bin
+*.elf
+
+# İşletim sistemi
+.DS_Store
+Thumbs.db
