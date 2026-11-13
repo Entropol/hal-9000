@@ -26,6 +26,9 @@ TR_VOICE_FILE = "tr_TR-dfki-medium.onnx"
 SENTENCES = os.path.join(os.path.dirname(os.path.abspath(__file__)), "ref_sentences.txt")
 TOPK = int(os.environ.get("VC_TOPK", "8"))  # higher = smoother, lower = closer to the reference
 SR = 16000
+# Semitones to raise (+) or lower (-) the Turkish source voice before it becomes HAL.
+# 0 = off. Try -2, -3 for a deeper voice or +2 for a higher one; 12 semitones = one octave.
+PITCH_SHIFT = max(-12.0, min(12.0, float(os.environ.get("TR_PITCH_SHIFT", "0") or 0)))
 
 
 def _load_knn():
@@ -51,12 +54,18 @@ class Converter:
         self.knn = _load_knn()
         self.matching = torch.load(MATCHING_PATH, weights_only=True)
         self.lock = threading.Lock()  # one conversion at a time
-        log.info("kNN-VC ready, HAL matching set %s, topk=%s", tuple(self.matching.shape), TOPK)
+        log.info("kNN-VC ready, HAL matching set %s, topk=%s, pitch shift %+.1f st",
+                 tuple(self.matching.shape), TOPK, PITCH_SHIFT)
 
     def convert(self, pcm: np.ndarray, sample_rate: int) -> np.ndarray:
         """int16 mono PCM in -> int16 mono PCM at 16 kHz in HAL's timbre."""
         x = torch.from_numpy(pcm.astype(np.float32) / 32768.0)[None]
         x = torchaudio.functional.resample(x, sample_rate, SR)
+        if PITCH_SHIFT:
+            try:  # shift the source before matching; the output pitch follows it
+                x = torchaudio.functional.pitch_shift(x, SR, PITCH_SHIFT)
+            except Exception:
+                log.exception("Pitch shift failed, using the unshifted voice")
         with self.lock, torch.inference_mode():
             query = self.knn.get_features(x)
             out = self.knn.match(query, self.matching, topk=TOPK)

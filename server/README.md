@@ -116,6 +116,9 @@ docker run --rm -p 8000:8000 --env-file .env hal
   speaker-similarity test this beat using the 96 noisy movie clips as the reference
   (0.66 vs 0.59 against the English HAL voice; 1.0 would be identical). Add more sentences to
   that file to widen the reference. `VC_TOPK` (default 8) trades smoothness for fidelity.
+  `TR_PITCH_SHIFT` (semitones, default `0`, range -12 to 12) raises or lowers the Turkish
+  voice: try `-2` or `-3` if it sounds too high, `2` if too low. It is read at startup, so
+  restart the service after changing it (no rebuild needed). The startup log prints the value.
   A Turkish reply takes roughly 3-20 s (mostly the Gemini call) and costs a fraction of a cent.
   - `TR_TTS_MODEL` (default `google/gemini-3.1-flash-tts-preview`), `TR_TTS_VOICE`
     (default `Charon`), `TR_TTS_INSTRUCTIONS` tune the source voice.
